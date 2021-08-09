@@ -23,11 +23,11 @@
 
 TIM_HandleTypeDef TimMasterHandle;
 
-volatile uint32_t SlaveCounter = 0;
-volatile uint32_t oc_int_part = 0;
-volatile uint16_t oc_rem_part = 0;
-volatile uint8_t tim_it_update; // TIM_IT_UPDATE event flag set in timer_irq_handler()
-volatile uint32_t tim_it_counter = 0; // Time stamp to be updated by timer_irq_handler()
+volatile uint32_t ghi_timeCounterH = 0;
+
+volatile uint32_t ghi_counter;
+volatile uint32_t ghi_counter2;
+volatile uint32_t ghi_timestamp;
 
 static int us_ticker_inited = 0;
 
@@ -46,70 +46,48 @@ void us_ticker_init(void)
     us_ticker_inited = 1;
 
     TimMasterHandle.Instance = TIM_MST;
+	
+	ghi_counter = 0;
+	ghi_counter2 = 0;
+	ghi_timestamp = 0;
 
     HAL_InitTick(0); // The passed value is not used
+	
+	
 }
 
 uint32_t us_ticker_read()
 {
-    uint32_t counter;
-
+  
     TimMasterHandle.Instance = TIM_MST;
 
-    if (!us_ticker_inited) us_ticker_init();
+    if (!us_ticker_inited) 
+		us_ticker_init();
+    
+    ghi_counter = (uint32_t)(ghi_timeCounterH << 16) | TIM_MST->CNT;
+	
+	if (ghi_counter < ghi_counter2) {
+		ghi_timeCounterH++;	
+		
+		ghi_counter = (uint32_t)(ghi_timeCounterH << 16) | TIM_MST->CNT;
+	}
+		
+	ghi_counter2 = ghi_counter;
+		
+    return ghi_counter;
 
-#if defined(TARGET_STM32L0)
-    uint16_t cntH_old, cntH, cntL;
-    do {
-        // For some reason on L0xx series we need to read and clear the
-        // overflow flag which give extra time to propelry handle possible
-        // hiccup after ~60s
-        if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_CC1OF) == SET) {
-            __HAL_TIM_CLEAR_FLAG(&TimMasterHandle, TIM_FLAG_CC1OF);
-        }
-        cntH_old = SlaveCounter;
-        if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_UPDATE) == SET) {
-            cntH_old += 1;
-        }
-        cntL = TIM_MST->CNT;
-        cntH = SlaveCounter;
-        if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_UPDATE) == SET) {
-            cntH += 1;
-        }
-    } while(cntH_old != cntH);
-    // Glue the upper and lower part together to get a 32 bit timer
-    return (uint32_t)(cntH << 16 | cntL);
-#else
-    tim_it_update = 0; // Clear TIM_IT_UPDATE event flag
-    counter = TIM_MST->CNT + (uint32_t)(SlaveCounter << 16); // Calculate new time stamp
-    if (tim_it_update == 1) {
-        return tim_it_counter; // In case of TIM_IT_UPDATE return the time stamp that was calculated in timer_irq_handler()
-    }
-    else {
-        return counter; // Otherwise return the time stamp calculated here
-    }
-#endif
 }
 
 void us_ticker_set_interrupt(timestamp_t timestamp)
-{
-    int delta = (int)((uint32_t)timestamp - us_ticker_read());
-
-    uint16_t cval = TIM_MST->CNT;
-
-    if (delta <= 0) { // This event was in the past
+{    
+	uint32_t t = (uint32_t)timestamp;
+	
+	if (t <=  us_ticker_read()) { // This event was in the past
         us_ticker_irq_handler();
     } else {
-        oc_int_part = (uint32_t)(delta >> 16);
-        oc_rem_part = (uint16_t)(delta & 0xFFFF);
-        if (oc_rem_part <= (0xFFFF - cval)) {
-            set_compare(cval + oc_rem_part);
-            oc_rem_part = 0;
-        } else {
-            set_compare(0xFFFF);
-            oc_rem_part = oc_rem_part - (0xFFFF - cval);
-        }
-    }
+		ghi_timestamp =  t;
+        set_compare(ghi_timestamp & 0xFFFF);
+    }	
 }
 
 void us_ticker_disable_interrupt(void)

@@ -22,61 +22,40 @@
 
 extern TIM_HandleTypeDef TimMasterHandle;
 
-extern volatile uint32_t SlaveCounter;
-extern volatile uint32_t oc_int_part;
-extern volatile uint16_t oc_rem_part;
-extern volatile uint8_t  tim_it_update;
-extern volatile uint32_t tim_it_counter;
+extern uint32_t ghi_timestamp;
+extern uint32_t ghi_timeCounterH;
 
 volatile uint32_t PreviousVal = 0;
 
 void us_ticker_irq_handler(void);
 void set_compare(uint16_t count);
 
-#if defined(TARGET_STM32F0)
-void timer_update_irq_handler(void) {
-#else
+
 void timer_irq_handler(void)
 {
-#endif
-    uint16_t cnt_val = TIM_MST->CNT;
+   
     TimMasterHandle.Instance = TIM_MST;
 
     // Clear Update interrupt flag
     if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_UPDATE) == SET) {
         if (__HAL_TIM_GET_IT_SOURCE(&TimMasterHandle, TIM_IT_UPDATE) == SET) {
             __HAL_TIM_CLEAR_IT(&TimMasterHandle, TIM_IT_UPDATE);
-            SlaveCounter++;
-            tim_it_counter = cnt_val + (uint32_t)(SlaveCounter << 16);
-            tim_it_update = 1;
+            ghi_timeCounterH++;           
         }
     }
 
-#if defined(TARGET_STM32F0)
-} // end timer_update_irq_handler function
-// Used for mbed timeout (channel 1) and HAL tick (channel 2)
-void timer_oc_irq_handler(void)
-{
-    uint16_t cnt_val = TIM_MST->CNT;
-    TimMasterHandle.Instance = TIM_MST;
-#endif
 
     // Channel 1 for mbed timeout
     if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_CC1) == SET) {
         if (__HAL_TIM_GET_IT_SOURCE(&TimMasterHandle, TIM_IT_CC1) == SET) {
             __HAL_TIM_CLEAR_IT(&TimMasterHandle, TIM_IT_CC1);
-            if (oc_rem_part > 0) {
-                set_compare(oc_rem_part); // Finish the remaining time left
-                oc_rem_part = 0;
-            } else {
-                if (oc_int_part > 0) {
-                    set_compare(0xFFFF);
-                    oc_rem_part = cnt_val; // To finish the counter loop the next time
-                    oc_int_part--;
-                } else {
-                    us_ticker_irq_handler();
-                }
-            }
+            
+			uint32_t currentTime = (uint32_t)(ghi_timeCounterH << 16) | TIM_MST->CNT;
+	
+			if (ghi_timestamp <= currentTime) {
+				ghi_timestamp = 0xFFFFFFFF;
+				us_ticker_irq_handler();
+			}
         }
     }
 
@@ -92,7 +71,7 @@ void timer_oc_irq_handler(void)
                 __HAL_TIM_SET_COMPARE(&TimMasterHandle, TIM_CHANNEL_2, val + HAL_TICK_DELAY);
                 PreviousVal = val;
 #if DEBUG_TICK > 0
-                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_6);
+                HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2);
 #endif
             }
         }
@@ -118,9 +97,7 @@ HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
     TimMasterHandle.Init.Prescaler     = (uint32_t)(SystemCoreClock / 1000000) - 1; // 1 us tick
     TimMasterHandle.Init.ClockDivision = 0;
     TimMasterHandle.Init.CounterMode   = TIM_COUNTERMODE_UP;
-#ifdef TARGET_STM32F0
-    TimMasterHandle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-#endif
+
     HAL_TIM_Base_Init(&TimMasterHandle);
 
     // Configure output compare channel 1 for mbed timeout (enabled later when used)
@@ -135,17 +112,10 @@ HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
     // Update interrupt used for 32-bit counter
     // Output compare channel 1 interrupt for mbed timeout
     // Output compare channel 2 interrupt for HAL tick
-#if defined(TARGET_STM32F0)
-    NVIC_SetVector(TIM_MST_UP_IRQ, (uint32_t)timer_update_irq_handler);
-    NVIC_EnableIRQ(TIM_MST_UP_IRQ);
-    NVIC_SetPriority(TIM_MST_UP_IRQ, 0);
-    NVIC_SetVector(TIM_MST_OC_IRQ, (uint32_t)timer_oc_irq_handler);
-    NVIC_EnableIRQ(TIM_MST_OC_IRQ);
-    NVIC_SetPriority(TIM_MST_OC_IRQ, 1);
-#else
+
     NVIC_SetVector(TIM_MST_IRQ, (uint32_t)timer_irq_handler);
     NVIC_EnableIRQ(TIM_MST_IRQ);
-#endif
+
 
     // Enable interrupts
     __HAL_TIM_ENABLE_IT(&TimMasterHandle, TIM_IT_UPDATE); // For 32-bit counter
@@ -157,7 +127,7 @@ HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
 #if DEBUG_TICK > 0
     __HAL_RCC_GPIOB_CLK_ENABLE();
     GPIO_InitTypeDef GPIO_InitStruct;
-    GPIO_InitStruct.Pin = GPIO_PIN_6;
+    GPIO_InitStruct.Pin = GPIO_PIN_2;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
