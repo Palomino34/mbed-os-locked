@@ -263,6 +263,7 @@ void SystemInit(void)
   SCB->VTOR = NVIC_FLASH_VECTOR_ADDRESS; // MBED
 #endif
 
+  //memcpy((uint8_t*)SRAM_BASE, (uint8_t*)0x0800C000, 0x194);
   memcpy((uint8_t*)SRAM_BASE, (uint8_t*)0x08000000, 0x194);
 
   SystemInit2();
