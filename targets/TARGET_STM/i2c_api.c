@@ -599,7 +599,8 @@ int i2c_stop(i2c_t *obj) {
         timeout = FLAG_TIMEOUT;
         while (!__HAL_I2C_GET_FLAG(handle, I2C_FLAG_TXIS)) {
             if ((timeout--) == 0) {
-                return I2C_ERROR_BUS_BUSY;
+                //return I2C_ERROR_BUS_BUSY;
+				break;
             }
         }
     }
@@ -688,6 +689,7 @@ int i2c_byte_write(i2c_t *obj, int data) {
     I2C_HandleTypeDef *handle = &(obj_s->handle);
     int timeout = FLAG_TIMEOUT;
     uint32_t tmpreg = handle->Instance->CR2;
+	uint8_t last_byte = 0;
 #if DEVICE_I2CSLAVE
     if (obj_s->slave) {
         return i2c_slave_write(obj, (char *) &data, 1);
@@ -726,8 +728,10 @@ int i2c_byte_write(i2c_t *obj, int data) {
         }
         /*  Enable reload mode as we don't know how many bytes will eb sent */
 		// [GHI changed]
-		if ((data & 0xFF00) == 0xFF00) // last byte
+		if ((data & 0xFF00) == 0xFF00) {// last byte 
 			tmpreg &= ~I2C_CR2_RELOAD;
+			last_byte = 1;
+		}
 		else 
 			tmpreg |= I2C_CR2_RELOAD;
 		
@@ -742,16 +746,29 @@ int i2c_byte_write(i2c_t *obj, int data) {
                 return 2;
             }
         }
+		
+		
+		
         /*  Write byte */
         handle->Instance->TXDR = data & 0xFF;
 		
-		//[GHI changed]
 		timeout = FLAG_TIMEOUT;
-		while (!__HAL_I2C_GET_FLAG(handle, I2C_FLAG_TC)) {
+        while (!__HAL_I2C_GET_FLAG(handle, I2C_FLAG_TXE)) {
             if ((timeout--) == 0) {
                 return 2;
             }
         }
+				
+		//[GHI changed]
+		if (last_byte) {
+			timeout = FLAG_TIMEOUT;
+			while (!__HAL_I2C_GET_FLAG(handle, I2C_FLAG_TC)) {
+				if ((timeout--) == 0) {
+					return 2;
+				}
+			}
+		}
+		
         
     }
 
