@@ -30,6 +30,25 @@ volatile uint32_t PreviousVal = 0;
 void us_ticker_irq_handler(void);
 void set_compare(uint16_t count);
 
+#define BUTTON_RESET_WAIT_TIME 3500 // 3.5s
+static uint64_t button_counter; 
+
+static uint8_t ButtonsPressed() {
+	GPIO_PinState stateA = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);
+	GPIO_PinState stateB = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7);
+	
+	return ((stateA == GPIO_PIN_RESET)  && (stateB == GPIO_PIN_RESET)) ? 1 : 0;	
+}
+
+void DoReset() {
+	// The address and value must be match in Bootloader2 and void codal::idle_task()
+	*(uint32_t*)0x20000194 = 0xAB12CD34;	
+}
+
+void DoNoReset() {
+	//TODO
+}
+
 
 void timer_irq_handler(void)
 {
@@ -76,6 +95,18 @@ void timer_irq_handler(void)
             }
         }
     }
+	
+	if (ButtonsPressed()) {
+		button_counter++;
+		
+		if (button_counter > BUTTON_RESET_WAIT_TIME) {
+			DoReset();
+		}
+	}
+	else {
+		button_counter = 0;
+		DoNoReset();
+	}
 }
 
 // Reconfigure the HAL tick using a standard timer instead of systick.
