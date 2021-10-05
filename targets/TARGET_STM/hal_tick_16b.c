@@ -30,7 +30,7 @@ volatile uint32_t PreviousVal = 0;
 void us_ticker_irq_handler(void);
 void set_compare(uint16_t count);
 
-#define BUTTON_RESET_WAIT_TIME 3500 // 3.5s
+#define BUTTON_RESET_WAIT_TIME 2000 // 3.5s
 static uint64_t button_counter; 
 
 static uint8_t ButtonsPressed() {
@@ -52,10 +52,12 @@ void DoNoReset() {
 
 void timer_irq_handler(void)
 {
-   
+	uint32_t currentTime = 0;
+	
     TimMasterHandle.Instance = TIM_MST;
 
-    // Clear Update interrupt flag
+    
+	// Clear Update interrupt flag
     if (__HAL_TIM_GET_FLAG(&TimMasterHandle, TIM_FLAG_UPDATE) == SET) {
         if (__HAL_TIM_GET_IT_SOURCE(&TimMasterHandle, TIM_IT_UPDATE) == SET) {
             __HAL_TIM_CLEAR_IT(&TimMasterHandle, TIM_IT_UPDATE);
@@ -69,7 +71,7 @@ void timer_irq_handler(void)
         if (__HAL_TIM_GET_IT_SOURCE(&TimMasterHandle, TIM_IT_CC1) == SET) {
             __HAL_TIM_CLEAR_IT(&TimMasterHandle, TIM_IT_CC1);
             
-			uint32_t currentTime = (uint32_t)(ghi_timeCounterH << 16) | TIM_MST->CNT;
+			currentTime = (uint32_t)(ghi_timeCounterH << 16) | TIM_MST->CNT;
 	
 			if (ghi_timestamp <= currentTime) {
 				ghi_timestamp = 0xFFFFFFFF;
@@ -97,15 +99,12 @@ void timer_irq_handler(void)
     }
 	
 	if (ButtonsPressed()) {
-		button_counter++;
-		
-		if (button_counter > BUTTON_RESET_WAIT_TIME) {
+		if (button_counter != 0 && currentTime != 0 && (currentTime - button_counter > BUTTON_RESET_WAIT_TIME * 1000))
 			DoReset();
-		}
 	}
 	else {
-		button_counter = 0;
-		DoNoReset();
+		if (currentTime != 0)
+			button_counter = currentTime;		
 	}
 }
 
