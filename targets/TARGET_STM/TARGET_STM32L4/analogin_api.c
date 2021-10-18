@@ -100,6 +100,11 @@ void analogin_init(analogin_t *obj, PinName pin)
         if (HAL_ADC_Init(&AdcHandle) != HAL_OK) {
             error("Cannot initialize ADC\n");
         }
+
+        if (HAL_ADCEx_Calibration_Start(&AdcHandle, ADC_SINGLE_ENDED) != HAL_OK)
+        {
+           
+        }
     }
 }
 
@@ -177,6 +182,8 @@ static inline uint16_t adc_read(analogin_t *obj)
     sConfig.SingleDiff   = ADC_SINGLE_ENDED;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset       = 0;
+
+    
 
     HAL_ADC_ConfigChannel(&AdcHandle, &sConfig);
 
